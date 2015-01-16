@@ -173,16 +173,20 @@ def decrypt_secret_infos():
             end = line_number
 EOF
 
-function! s:fetch_gpg_current_range()
-    python fetch_gpg_current_range()
-  endfunction
+function! s:encrypt_secret_infos()
+  python encrypt_secret_infos()
+endfunction
+
+function! s:decrypt_secret_infos()
+  python decrypt_secret_infos()
+endfunction
 
 " Key mappings will be of the form '<Leader>s' followed by something more
 " specific.  Current mappings:
 " - <Leader>se encrypt a range selected by V;
 " - <Leader>sd decrypts the current GPG block.
-map <Leader>se :python encrypt_secret_infos()
-map <Leader>sd :python decrypt_secret_infos()
+map <Leader>se :python encrypt_secret_infos()<CR>
+map <Leader>sd :python decrypt_secret_infos()<CR>
 
-autocmd BufRead * :python decrypt_secret_infos()
+autocmd BufRead,BufWritePost * :python decrypt_secret_infos()
 autocmd BufWritePre * :python encrypt_secret_infos()
