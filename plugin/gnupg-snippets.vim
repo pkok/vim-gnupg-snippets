@@ -95,17 +95,19 @@ def current_gpg_block_text():
 
 def encrypt_plaintext(text):
     recipients = []
-    if '---' not in text:
-        raise vim.error, "No header for GPG snippet."
-    split = text.split('---')
-    header, body = split[0], '---'.join(split[1:])
-    for line in header.split('\n'):
-        match = re.match('^to:?', line, re.IGNORECASE)
+    header = []
+    for line in text.split('\n'):
+        if not line.strip():
+            break
+        header.append(line)
+        match = re.match('^for:?', line, re.IGNORECASE)
         if match:
             line = line[match.span()[1]:]
             for r in line.split(','):
                 recipients.append(find_gpg_key(r.strip()))
-    cipher = gpg.encrypt(body, recipients)
+    if not header:
+        raise vim.error, "No header for GPG snippet."
+    cipher = gpg.encrypt(text, recipients)
     if not cipher.ok:
         raise vim.error, "Could not encrypt."
     return cipher.data
@@ -124,7 +126,9 @@ def find_gpg_key(expression):
             if expression.lower() in uid.lower():
                 candidates.append(key)
     if not candidates:
-        raise vim.error, "No matching key found for '%s'" % expression
+        # If it is not a user, try to see if it is a group.
+        if not candidates:
+            raise vim.error, "No matching key found for '%s'" % expression
     if len(candidates) > 1:
         matches = ("- %s (%s)" % (', '.join(key['uids']),
             key['fingerprint'][-8:]) for key in candidates)
@@ -133,8 +137,40 @@ def find_gpg_key(expression):
         raise vim.error, msg % (expression, matches)
     return candidates[0]['fingerprint']
 
-def encrypt_selection():
-   return encrypt_plaintext(get_selected_text())
+def encrypt_secret_infos():
+    store_lines = False
+    end = None
+    for line_number, line in reversed(list(enumerate(vim.current.buffer))):
+        if store_lines:
+            if re.match("BEGIN\s+SECRET\s+INFO\s*$", line):
+                store_lines = False
+                cipher = encrypt_plaintext(get_selected_text(line_number, end+1))
+                vim.current.buffer[line_number:end+1] = cipher.split('\n')[:-1]
+        if re.match("END\s+SECRET\s+INFO\s*$", line):
+            store_lines = True
+            end = line_number
+
+def decrypt_pgp(text):
+    cipher = gpg.decrypt(text)
+    if not cipher.ok:
+        raise vim.error, "Could not decrypt."
+    return cipher.data
+
+def decrypt_secret_infos():
+    store_lines = False
+    end = None
+    for line_number, line in reversed(list(enumerate(vim.current.buffer))):
+        if store_lines:
+            if re.match("-{5,}\s*BEGIN\s+PGP\s+MESSAGE\s*-{5,}", line):
+                store_lines = False
+                try:
+                    cipher = decrypt_pgp(get_selected_text(line_number, end))
+                    vim.current.buffer[line_number:end+1] = cipher.split('\n')[:-1]
+                except vim.error:
+                    pass
+        if re.match("-{5,}\s*END\s+PGP\s+MESSAGE\s*-{5,}", line):
+            store_lines = True
+            end = line_number
 EOF
 
 function! s:fetch_gpg_current_range()
@@ -142,10 +178,11 @@ function! s:fetch_gpg_current_range()
   endfunction
 
 " Key mappings will be of the form '<Leader>s' followed by something more
-" specific.  Planned mappings:
+" specific.  Current mappings:
 " - <Leader>se encrypt a range selected by V;
 " - <Leader>sd decrypts the current GPG block.
-" The mappings below are just for debugging purposes.
-map <Leader>r :python print current_gpg_block_range()
-map <Leader>t :python print current_gpg_block_text()
-map <Leader>e :python print encrypt_selection()
+map <Leader>se :python encrypt_secret_infos()
+map <Leader>sd :python decrypt_secret_infos()
+
+autocmd BufRead * :python decrypt_secret_infos()
+autocmd BufWritePre * :python encrypt_secret_infos()
