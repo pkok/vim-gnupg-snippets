@@ -6,6 +6,9 @@ let g:gnupg_snippets_loaded = 1
 python << EOF
 import vim
 import re
+import gnupg
+
+gpg = gnupg.GPG()
 
 PGP_START_PATTERN = re.compile("-{5,}\s*BEGIN\s+PGP\s+MESSAGE\s*-{5,}")
 PGP_END_PATTERN = re.compile("-{5,}\s*END\s+PGP\s+MESSAGE\s*-{5,}")
@@ -89,6 +92,49 @@ def current_gpg_block_text():
     """
     pgp_range = current_gpg_block_range()
     return get_selected_text(*pgp_range)
+
+def encrypt_plaintext(text):
+    recipients = []
+    if '---' not in text:
+        raise vim.error, "No header for GPG snippet."
+    split = text.split('---')
+    header, body = split[0], '---'.join(split[1:])
+    for line in header.split('\n'):
+        match = re.match('^to:?', line, re.IGNORECASE)
+        if match:
+            line = line[match.span()[1]:]
+            for r in line.split(','):
+                recipients.append(find_gpg_key(r.strip()))
+    cipher = gpg.encrypt(body, recipients)
+    if not cipher.ok:
+        raise vim.error, "Could not encrypt."
+    return cipher.data
+
+def find_gpg_key(expression):
+    candidates = []
+    keyring = gpg.list_keys()
+    # Expression is the end of a fingerprint
+    if re.match("^[0-9A-Fa-f]{8,}$", expression): 
+        for key in keyring:
+            if key['fingerprint'].endswith(expression.upper()):
+                candidates.append(key)
+                break
+    for key in keyring:
+        for uid in key['uids']:
+            if expression.lower() in uid.lower():
+                candidates.append(key)
+    if not candidates:
+        raise vim.error, "No matching key found for '%s'" % expression
+    if len(candidates) > 1:
+        matches = ("- %s (%s)" % (', '.join(key['uids']),
+            key['fingerprint'][-8:]) for key in candidates)
+        matches = '\n'.join(matches)
+        msg = "Key '%s' is ambiguous. Matches found: \n%s"
+        raise vim.error, msg % (expression, matches)
+    return candidates[0]['fingerprint']
+
+def encrypt_selection():
+   return encrypt_plaintext(get_selected_text())
 EOF
 
 function! s:fetch_gpg_current_range()
@@ -100,6 +146,6 @@ function! s:fetch_gpg_current_range()
 " - <Leader>se encrypt a range selected by V;
 " - <Leader>sd decrypts the current GPG block.
 " The mappings below are just for debugging purposes.
-map <Leader>e :python print get_selected_text()
 map <Leader>r :python print current_gpg_block_range()
 map <Leader>t :python print current_gpg_block_text()
+map <Leader>e :python print encrypt_selection()
