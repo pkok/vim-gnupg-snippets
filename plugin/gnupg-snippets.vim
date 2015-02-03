@@ -188,5 +188,5 @@ endfunction
 map <Leader>se :python encrypt_secret_infos()<CR>
 map <Leader>sd :python decrypt_secret_infos()<CR>
 
-autocmd BufRead,BufWritePost * :python decrypt_secret_infos()
-autocmd BufWritePre * :python encrypt_secret_infos()
+autocmd BufRead,BufWritePost markdown :python decrypt_secret_infos()
+autocmd BufWritePre markdown :python encrypt_secret_infos()
